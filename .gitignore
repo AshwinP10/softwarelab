@@ -1,0 +1,8 @@
+# Node / Vite artifacts
+frontend/node_modules
+frontend/dist
+
+# Lock files (use your preferred one locally)
+yarn.lock
+package-lock.json
+pnpm-lock.yaml

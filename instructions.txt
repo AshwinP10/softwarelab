@@ -1,0 +1,29 @@
+Build a full-stack Hardware-as-a-Service (HaaS) proof-of-concept web app.
+
+The app should allow users to:
+
+Sign up and log in securely with encrypted credentials.
+
+Create and access projects, each with a project name, ID, and description.
+
+View available hardware resources (e.g., HWSet1 and HWSet2) showing capacity and availability.
+
+Check out and check in hardware units, updating the database accordingly.
+
+Display total hardware capacity as a global shared quantity across all projects.
+
+Technical details:
+
+Frontend: React + TypeScript
+
+Backend: Python (FastAPI or Flask)
+
+Database: MongoDB (stores user, project, and hardware info)
+
+Security: Encrypt passwords before saving; API endpoints should use authentication.
+
+Deployment: Host on cloud (Heroku or Render) with accessible URL.
+
+Testing: Include simple PyTest unit tests for API endpoints.
+
+The goal is to meet stakeholder needs SN1–SN6 from a typical HaaS system (secure accounts, project management, resource tracking, scalability). Provide clear file structure, comments, and example data.
