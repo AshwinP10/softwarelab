@@ -1,0 +1,14 @@
+[
+  {
+    "id": "hwset1",
+    "name": "HWSet1",
+    "total_capacity": 10,
+    "available_capacity": 10
+  },
+  {
+    "id": "hwset2",
+    "name": "HWSet2",
+    "total_capacity": 20,
+    "available_capacity": 20
+  }
+]
