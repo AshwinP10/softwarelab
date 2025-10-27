@@ -23,8 +23,10 @@ body {
 }
 
 .container {
-  max-width: 1100px;
-  margin: 0 auto;
+  /* allow the app to use the full viewport width so cards can stretch */
+  max-width: none;
+  width: 100%;
+  margin: 0;
   padding: 24px;
 }
 
@@ -40,15 +42,25 @@ body {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(12, 1fr);
-  gap: 16px;
+  /* single column layout so each card spans the available width */
+  grid-template-columns: 1fr;
+  gap: 20px;
 }
 
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 16px;
+  padding: 20px;
+  width: 100%;
+}
+
+/* utility to make a card expand to fill most of the viewport height */
+.card.full-height {
+  min-height: calc(100vh - 200px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .card h2 { margin-top: 0; }
