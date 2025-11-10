@@ -26,3 +26,4 @@ Then open the URL shown by Vite (typically http://localhost:5173).
 - Replace static UI with dynamic data fetching and mutations
 - Add tests (PyTest) for backend
 - Deploy to cloud (Heroku/Render)
+fake change to push
