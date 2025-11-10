@@ -77,44 +77,60 @@ const AuthPage: React.FC = () => {
   }
 
   return (
-    <section className="card full-height">
-      <h2>Sign Up / Login</h2>
+    <div style={{display: 'grid', gap: 20}}>
+      <section className="card">
+        <div style={{textAlign: 'center', marginBottom: '20px'}}>
+          <h1>Hardware-as-a-Service (HaaS) Platform</h1>
+          <p style={{color: 'var(--muted)', fontSize: '1.1em'}}>
+            Access shared hardware resources for your projects
+          </p>
+          <div style={{padding: '12px', backgroundColor: 'var(--accent-bg)', borderRadius: '4px', marginTop: '12px'}}>
+            <p style={{margin: 0, fontSize: '0.9em'}}>
+              🔧 <strong>Available Resources:</strong> Arduino Kits (HWSet1) • Raspberry Pi Kits (HWSet2)<br/>
+              👥 <strong>Collaboration:</strong> Create projects and invite team members<br/>
+              📊 <strong>Management:</strong> Real-time hardware checkout and check-in
+            </p>
+          </div>
+        </div>
 
-      {error && <div className="error">{error}</div>}
-      {message && <div className="success">{message}</div>}
+        <h2>Sign In</h2>
+        {error && <div style={{color: 'salmon', marginBottom: '12px'}}>{error}</div>}
+        {message && <div style={{color: 'green', marginBottom: '12px'}}>{message}</div>}
 
-      <div className="row">
-        <h3>Login</h3>
-        <input
-          placeholder="User ID"
-          value={loginUserId}
-          onChange={(e) => setLoginUserId(e.target.value)}
-        />
-        <input
-          placeholder="Password"
-          type="password"
-          value={loginPassword}
-          onChange={(e) => setLoginPassword(e.target.value)}
-        />
-        <button onClick={handleLogin}>Login</button>
-      </div>
+        <div className="row">
+          <input
+            placeholder="User ID"
+            value={loginUserId}
+            onChange={(e) => setLoginUserId(e.target.value)}
+          />
+          <input
+            placeholder="Password"
+            type="password"
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
+          />
+          <button onClick={handleLogin}>Sign In</button>
+        </div>
+      </section>
 
-      <div className="row">
-        <h3>Sign Up</h3>
-        <input
-          placeholder="New User ID"
-          value={signupUserId}
-          onChange={(e) => setSignupUserId(e.target.value)}
-        />
-        <input
-          placeholder="New Password"
-          type="password"
-          value={signupPassword}
-          onChange={(e) => setSignupPassword(e.target.value)}
-        />
-        <button onClick={handleSignup}>Sign Up</button>
-      </div>
-    </section>
+      <section className="card">
+        <h2>New User? Sign Up</h2>
+        <div className="row">
+          <input
+            placeholder="Choose User ID"
+            value={signupUserId}
+            onChange={(e) => setSignupUserId(e.target.value)}
+          />
+          <input
+            placeholder="Choose Password"
+            type="password"
+            value={signupPassword}
+            onChange={(e) => setSignupPassword(e.target.value)}
+          />
+          <button onClick={handleSignup}>Sign Up</button>
+        </div>
+      </section>
+    </div>
   )
 }
 

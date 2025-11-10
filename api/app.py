@@ -35,6 +35,42 @@ CORS(
     supports_credentials=True,
 )
 
+# ---------- HELPER FUNCTIONS ----------
+
+def check_project_access(project_id, user_id):
+    """Check if user has access to the project"""
+    if not user_id:
+        return False
+    
+    project = projects_col.find_one({"projectId": project_id})
+    if not project:
+        return False
+    
+    # Check if user is in members list or project is public
+    return (user_id in project.get("members", []) or 
+            project.get("isPublic", False))
+
+def get_user_projects(user_id):
+    """Get projects where user is a member (created or invited)"""
+    if not user_id:
+        return []
+    
+    # Find only projects where user is a member
+    query = {"members": user_id}
+    
+    return list(projects_col.find(query, {
+        "_id": 0, "projectId": 1, "name": 1, "description": 1, 
+        "createdAt": 1, "createdBy": 1, "isPublic": 1
+    }))
+
+def get_public_projects():
+    """Get all public projects that users can discover and join"""
+    return list(projects_col.find(
+        {"isPublic": True},
+        {"_id": 0, "projectId": 1, "name": 1, "description": 1, 
+         "createdAt": 1, "createdBy": 1, "isPublic": 1}
+    ))
+
 # ---------- AUTH ENDPOINTS ----------
 
 @app.route("/api/signup", methods=["POST"])
@@ -81,20 +117,41 @@ def login():
 
 @app.route("/api/projects", methods=["GET"])
 def list_projects():
-    docs = list(
-        projects_col.find(
-            {},
-            {"_id": 0, "projectId": 1, "name": 1, "description": 1, "createdAt": 1},
-        )
-    )
+    # Get userId from query parameter for authorization
+    user_id = request.args.get("userId")
+    
+    if user_id:
+        # Return only projects accessible to this user
+        docs = get_user_projects(user_id)
+    else:
+        # Return only public projects if no user specified
+        docs = list(projects_col.find(
+            {"isPublic": True},
+            {"_id": 0, "projectId": 1, "name": 1, "description": 1, "createdAt": 1, "isPublic": 1}
+        ))
+    
+    return jsonify(docs), 200
+
+
+@app.route("/api/projects/public", methods=["GET"])
+def list_public_projects():
+    """Get all public projects that users can discover and join"""
+    docs = get_public_projects()
     return jsonify(docs), 200
 
 
 @app.route("/api/projects/<project_id>", methods=["GET"])
 def get_project(project_id):
+    user_id = request.args.get("userId")
+    
+    # Check authorization
+    if not check_project_access(project_id, user_id):
+        return jsonify({"error": "Access denied"}), 403
+    
     doc = projects_col.find_one(
         {"projectId": project_id},
-        {"_id": 0, "projectId": 1, "name": 1, "description": 1, "createdAt": 1},
+        {"_id": 0, "projectId": 1, "name": 1, "description": 1, "createdAt": 1, 
+         "createdBy": 1, "members": 1, "isPublic": 1},
     )
     if not doc:
         return jsonify({"error": "Project not found"}), 404
@@ -104,15 +161,25 @@ def get_project(project_id):
 @app.route("/api/projects", methods=["POST"])
 def create_project():
     payload = request.get_json(force=True) or {}
-    required = ("projectId", "name")
+    required = ("projectId", "name", "createdBy")
     if not all(k in payload and payload[k] for k in required):
-        return jsonify({"error": "projectId and name are required"}), 400
+        return jsonify({"error": "projectId, name, and createdBy are required"}), 400
+
+    created_by = payload["createdBy"]
+    
+    # Verify user exists
+    user = users_col.find_one({"userId": created_by})
+    if not user:
+        return jsonify({"error": "Invalid user"}), 400
 
     doc = {
         "projectId": payload["projectId"],
         "name": payload["name"],
         "description": payload.get("description", ""),
         "createdAt": payload.get("createdAt"),
+        "createdBy": created_by,
+        "members": [created_by],  # Creator is automatically a member
+        "isPublic": payload.get("isPublic", False)
     }
 
     try:
@@ -123,17 +190,193 @@ def create_project():
     return jsonify({"ok": True, "projectId": doc["projectId"]}), 201
 
 
-# (Optional stub for resources if needed later)
+@app.route("/api/projects/<project_id>/join", methods=["POST"])
+def join_project():
+    payload = request.get_json(force=True) or {}
+    user_id = payload.get("userId")
+    
+    if not user_id:
+        return jsonify({"error": "userId is required"}), 400
+    
+    # Verify user exists
+    user = users_col.find_one({"userId": user_id})
+    if not user:
+        return jsonify({"error": "Invalid user"}), 400
+    
+    # Find project
+    project = projects_col.find_one({"projectId": project_id})
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    # Check if project is public or user is already a member
+    if not project.get("isPublic", False) and user_id not in project.get("members", []):
+        return jsonify({"error": "Access denied - project is private"}), 403
+    
+    # Add user to members if not already there
+    if user_id not in project.get("members", []):
+        projects_col.update_one(
+            {"projectId": project_id},
+            {"$addToSet": {"members": user_id}}
+        )
+        return jsonify({"ok": True, "message": "Successfully joined project"}), 200
+    else:
+        return jsonify({"ok": True, "message": "Already a member of this project"}), 200
+
+
+@app.route("/api/projects/<project_id>/members", methods=["GET"])
+def get_project_members(project_id):
+    user_id = request.args.get("userId")
+    
+    # Check authorization
+    if not check_project_access(project_id, user_id):
+        return jsonify({"error": "Access denied"}), 403
+    
+    project = projects_col.find_one({"projectId": project_id})
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    
+    members = project.get("members", [])
+    return jsonify({
+        "members": members,
+        "createdBy": project.get("createdBy"),
+        "isPublic": project.get("isPublic", False)
+    }), 200
+
+
+@app.route("/api/projects/<project_id>/invite", methods=["POST"])
+def invite_to_project(project_id):
+    payload = request.get_json(force=True) or {}
+    requesting_user = payload.get("requestingUser")
+    invite_user = payload.get("inviteUser")
+    
+    if not requesting_user or not invite_user:
+        return jsonify({"error": "requestingUser and inviteUser are required"}), 400
+    
+    # Check if requesting user has access to project
+    if not check_project_access(project_id, requesting_user):
+        return jsonify({"error": "Access denied"}), 403
+    
+    # Verify invited user exists
+    user = users_col.find_one({"userId": invite_user})
+    if not user:
+        return jsonify({"error": "Invited user does not exist"}), 404
+    
+    # Add user to project members
+    result = projects_col.update_one(
+        {"projectId": project_id},
+        {"$addToSet": {"members": invite_user}}
+    )
+    
+    if result.modified_count > 0:
+        return jsonify({"ok": True, "message": f"Successfully invited {invite_user} to project"}), 200
+    else:
+        return jsonify({"ok": True, "message": f"{invite_user} is already a member"}), 200
+
+
+# ---------- HARDWARE RESOURCE ENDPOINTS ----------
+
 @app.route("/api/projects/<project_id>/resources", methods=["GET"])
 def get_project_resources(project_id):
+    user_id = request.args.get("userId")
+    
+    # Check authorization
+    if not check_project_access(project_id, user_id):
+        return jsonify({"error": "Access denied"}), 403
+    
     docs = list(
         resources_col.find(
             {"projectId": project_id},
-            {"_id": 0, "projectId": 1, "setId": 1, "total": 1,
+            {"_id": 0, "projectId": 1, "hwsetId": 1, "name": 1, "total": 1,
              "allocatedToProject": 1, "available": 1, "notes": 1},
         )
     )
     return jsonify(docs), 200
+
+
+@app.route("/api/projects/<project_id>/resources/<hwset_id>/checkout", methods=["POST"])
+def checkout_hardware(project_id, hwset_id):
+    data = request.get_json(force=True) or {}
+    quantity = data.get("quantity", 1)
+    user_id = data.get("userId")  # Should be passed from frontend
+    
+    if not user_id:
+        return jsonify({"error": "userId is required"}), 400
+    
+    # Check project authorization
+    if not check_project_access(project_id, user_id):
+        return jsonify({"error": "Access denied to project"}), 403
+    
+    if not isinstance(quantity, int) or quantity <= 0:
+        return jsonify({"error": "quantity must be a positive integer"}), 400
+    
+    # Find the resource
+    resource = resources_col.find_one({"projectId": project_id, "hwsetId": hwset_id})
+    if not resource:
+        return jsonify({"error": "Hardware set not found"}), 404
+    
+    # Check availability
+    current_available = resource.get("available", 0)
+    if quantity > current_available:
+        return jsonify({"error": f"Only {current_available} units available"}), 400
+    
+    # Update quantities
+    new_available = current_available - quantity
+    new_allocated = resource.get("allocatedToProject", 0) + quantity
+    
+    resources_col.update_one(
+        {"projectId": project_id, "hwsetId": hwset_id},
+        {"$set": {"available": new_available, "allocatedToProject": new_allocated}}
+    )
+    
+    return jsonify({
+        "ok": True, 
+        "message": f"Checked out {quantity} units of {hwset_id}",
+        "available": new_available,
+        "allocated": new_allocated
+    }), 200
+
+
+@app.route("/api/projects/<project_id>/resources/<hwset_id>/checkin", methods=["POST"])
+def checkin_hardware(project_id, hwset_id):
+    data = request.get_json(force=True) or {}
+    quantity = data.get("quantity", 1)
+    user_id = data.get("userId")  # Should be passed from frontend
+    
+    if not user_id:
+        return jsonify({"error": "userId is required"}), 400
+    
+    # Check project authorization
+    if not check_project_access(project_id, user_id):
+        return jsonify({"error": "Access denied to project"}), 403
+    
+    if not isinstance(quantity, int) or quantity <= 0:
+        return jsonify({"error": "quantity must be a positive integer"}), 400
+    
+    # Find the resource
+    resource = resources_col.find_one({"projectId": project_id, "hwsetId": hwset_id})
+    if not resource:
+        return jsonify({"error": "Hardware set not found"}), 404
+    
+    # Check if we can check in this many
+    current_allocated = resource.get("allocatedToProject", 0)
+    if quantity > current_allocated:
+        return jsonify({"error": f"Only {current_allocated} units are checked out"}), 400
+    
+    # Update quantities
+    new_allocated = current_allocated - quantity
+    new_available = resource.get("available", 0) + quantity
+    
+    resources_col.update_one(
+        {"projectId": project_id, "hwsetId": hwset_id},
+        {"$set": {"available": new_available, "allocatedToProject": new_allocated}}
+    )
+    
+    return jsonify({
+        "ok": True, 
+        "message": f"Checked in {quantity} units of {hwset_id}",
+        "available": new_available,
+        "allocated": new_allocated
+    }), 200
 
 
 if __name__ == "__main__":
