@@ -12,6 +12,10 @@ const ProjectPage: React.FC = () => {
   const state = location.state as { name?: string; description?: string } | null
   const [name, setName] = useState<string | null>(state?.name ?? null)
   const [description, setDescription] = useState<string | null>(state?.description ?? null)
+  const [isPublic, setIsPublic] = useState<boolean | null>((state && typeof (state as any).isPublic === 'boolean') ? (state as any).isPublic : null)
+  const [createdBy, setCreatedBy] = useState<string | null>(null)
+  const [showVisibilityMenu, setShowVisibilityMenu] = useState(false)
+  const hoverTimeout = React.useRef<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resources, setResources] = useState<Array<any>>([])
@@ -25,8 +29,8 @@ const ProjectPage: React.FC = () => {
   const [inviteMessage, setInviteMessage] = useState('')
 
   useEffect(() => {
-    // if we have name/description from navigation state, no need to fetch
-    if (name !== null && description !== null) return
+    // if we have name/description/visibility from navigation state, no need to fetch
+    if (name !== null && description !== null && isPublic !== null) return
     if (!projectId) return
     setLoading(true)
     const userId = localStorage.getItem('userId')
@@ -46,6 +50,9 @@ const ProjectPage: React.FC = () => {
       .then(data => {
         setName(data.name)
         setDescription(data.description)
+        // set visibility from API (field is `isPublic` in DB)
+        setIsPublic(!!data.isPublic)
+        setCreatedBy(data.createdBy ?? null)
       })
       .catch(err => setError(String(err)))
       .finally(() => setLoading(false))
@@ -158,6 +165,35 @@ const ProjectPage: React.FC = () => {
     }
   }
 
+  const handleRemoveMember = async (memberId: string) => {
+    if (!projectId) return
+    const me = localStorage.getItem('userId')
+    if (!me) {
+      alert('Please log in first')
+      return
+    }
+
+    if (!confirm(`Are you sure you want to remove ${memberId} from this project?`)) return
+
+    try {
+      const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(memberId)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestingUser: me })
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        // remove from local state
+        setMembers(prev => prev.filter(m => m !== memberId))
+      } else {
+        alert(data.error || 'Failed to remove member')
+      }
+    } catch (err) {
+      alert('Network error while removing member')
+    }
+  }
+
   const handleInviteUser = async () => {
     if (!inviteUser.trim() || !projectId) return
     
@@ -200,7 +236,117 @@ const ProjectPage: React.FC = () => {
       <section className="card">
         <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
           <div>
-            <h2>{name ?? `Project ${projectId}`}</h2>
+            <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+              <h2 style={{margin: 0}}>{name ?? `Project ${projectId}`}</h2>
+              <div
+                style={{position: 'relative'}}
+                onMouseEnter={() => {
+                  const me = localStorage.getItem('userId')
+                  if (me && createdBy && me === createdBy) {
+                    // clear any pending close timeout
+                    if (hoverTimeout.current) {
+                      window.clearTimeout(hoverTimeout.current)
+                      hoverTimeout.current = null
+                    }
+                    setShowVisibilityMenu(true)
+                  }
+                }}
+                onMouseLeave={() => {
+                  // delay closing so user can move into the menu
+                  hoverTimeout.current = window.setTimeout(() => {
+                    setShowVisibilityMenu(false)
+                    hoverTimeout.current = null
+                  }, 200)
+                }}
+              >
+                <div
+                  title={createdBy && localStorage.getItem('userId') === createdBy ? 'Hover to change visibility' : ''}
+                  style={{
+                    padding: '4px 8px',
+                    borderRadius: 999,
+                    background: isPublic ? 'rgba(16,185,129,0.12)' : 'rgba(220,38,38,0.08)',
+                    color: isPublic ? 'var(--primary-700)' : 'salmon',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    border: 'none',
+                    display: 'inline-block'
+                  }}
+                >
+                  {isPublic ? 'Public' : 'Private'}
+                </div>
+
+                {showVisibilityMenu && (
+                  <div
+                    onMouseEnter={() => {
+                      if (hoverTimeout.current) {
+                        window.clearTimeout(hoverTimeout.current)
+                        hoverTimeout.current = null
+                      }
+                      setShowVisibilityMenu(true)
+                    }}
+                    onMouseLeave={() => {
+                      hoverTimeout.current = window.setTimeout(() => {
+                        setShowVisibilityMenu(false)
+                        hoverTimeout.current = null
+                      }, 200)
+                    }}
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 'calc(100% + 8px)',
+                      background: 'white',
+                      color: 'var(--text)',
+                      boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
+                      borderRadius: 8,
+                      zIndex: 40,
+                      padding: 8,
+                      minWidth: 160,
+                      border: `1px solid ${isPublic ? 'rgba(16,185,129,0.18)' : 'rgba(220,38,38,0.12)'}`
+                    }}>
+                    <div style={{display: 'flex', flexDirection: 'column', gap: 6}}>
+                      {/* show only the opposite action */}
+                      {!isPublic && (
+                        <button onClick={async () => {
+                          const userId = localStorage.getItem('userId')
+                          if (!userId) return
+                          try {
+                            const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId!)}/visibility`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ userId, isPublic: true })
+                            })
+                            const data = await res.json()
+                            if (res.ok) setIsPublic(!!data.isPublic)
+                            else alert(data.error || 'Failed to update visibility')
+                          } catch (err) {
+                            alert('Network error updating visibility')
+                          }
+                        }} style={{padding: '8px 10px', borderRadius: 6, border: 'none', background: '#ecfff1', color: 'var(--primary-700)', textAlign: 'left', cursor: 'pointer'}}>Make Public</button>
+                      )}
+
+                      {isPublic && (
+                        <button onClick={async () => {
+                          const userId = localStorage.getItem('userId')
+                          if (!userId) return
+                          try {
+                            const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(projectId!)}/visibility`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ userId, isPublic: false })
+                            })
+                            const data = await res.json()
+                            if (res.ok) setIsPublic(!!data.isPublic)
+                            else alert(data.error || 'Failed to update visibility')
+                          } catch (err) {
+                            alert('Network error updating visibility')
+                          }
+                        }} style={{padding: '8px 10px', borderRadius: 6, border: 'none', background: '#fff5f5', color: 'salmon', textAlign: 'left', cursor: 'pointer'}}>Make Private</button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="subtitle">ID: {projectId}</div>
             {loading ? <p>Loading...</p> : <p style={{color: 'var(--muted)'}}>{description ?? 'No description provided.'}</p>}
             {error && <div style={{color: 'salmon'}}>Error: {error}</div>}
@@ -281,14 +427,42 @@ const ProjectPage: React.FC = () => {
           <h4>Current Members ({members.length})</h4>
           <div style={{display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '16px'}}>
             {members.map(member => (
-              <span key={member} style={{
-                padding: '4px 8px',
-                backgroundColor: 'var(--accent-bg)',
-                borderRadius: '4px',
-                fontSize: '0.9em'
-              }}>
-                {member}
-              </span>
+              <div key={member} className="member-chip">
+                <span style={{
+                  padding: '4px 8px',
+                  backgroundColor: 'var(--accent-bg)',
+                  borderRadius: '4px',
+                  fontSize: '0.9em',
+                  display: 'inline-block'
+                }}>
+                  {member}
+                </span>
+
+                {/* show remove button on hover if current user is owner and not the owner itself */}
+                {createdBy === localStorage.getItem('userId') && member !== createdBy && (
+                  <button
+                    onClick={() => handleRemoveMember(member)}
+                    aria-label={`Remove ${member}`}
+                    style={{
+                      position: 'absolute',
+                      top: -6,
+                      right: -6,
+                      borderRadius: '50%',
+                      width: 20,
+                      height: 20,
+                      padding: 0,
+                      border: 'none',
+                      background: 'salmon',
+                      color: 'white',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                    className="member-remove-btn"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             ))}
             {members.length === 0 && <span style={{color: 'var(--muted)'}}>No members found</span>}
           </div>
