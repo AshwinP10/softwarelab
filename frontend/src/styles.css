@@ -99,6 +99,21 @@ button.secondary { background: transparent; border: 1px solid var(--border); col
   gap: 12px;
 }
 
+/* member chip with hoverable remove button (owner only) */
+.member-chip {
+  position: relative;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.member-chip .member-remove-btn {
+  display: none;
+}
+
+.member-chip:hover .member-remove-btn {
+  display: inline-block;
+}
+
 .hw p { margin: 6px 0; }
 
 .list {

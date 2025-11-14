@@ -164,6 +164,26 @@ def get_project(project_id):
     return jsonify(doc), 200
 
 
+@app.route("/api/projects/<project_id>/visibility", methods=["PATCH"])
+def set_project_visibility(project_id):
+    payload = request.get_json(force=True) or {}
+    user_id = payload.get("userId")
+    if not user_id:
+        return jsonify({"error": "userId is required"}), 400
+
+    project = projects_col.find_one({"projectId": project_id})
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    # Only the creator may change visibility
+    if project.get("createdBy") != user_id:
+        return jsonify({"error": "Only the project owner may change visibility"}), 403
+
+    is_public = bool(payload.get("isPublic", False))
+    projects_col.update_one({"projectId": project_id}, {"$set": {"isPublic": is_public}})
+    return jsonify({"ok": True, "isPublic": is_public}), 200
+
+
 @app.route("/api/projects", methods=["POST"])
 def create_project():
     payload = request.get_json(force=True) or {}
@@ -259,36 +279,45 @@ def create_project():
 
 
 @app.route("/api/projects/<project_id>/join", methods=["POST"])
-def join_project():
-    payload = request.get_json(force=True) or {}
+def join_project(project_id):
+    try:
+        payload = request.get_json(force=True) or {}
+    except Exception:
+        return jsonify({"error": "Invalid JSON body"}), 400
+
     user_id = payload.get("userId")
-    
     if not user_id:
         return jsonify({"error": "userId is required"}), 400
-    
-    # Verify user exists
-    user = users_col.find_one({"userId": user_id})
-    if not user:
-        return jsonify({"error": "Invalid user"}), 400
-    
-    # Find project
-    project = projects_col.find_one({"projectId": project_id})
-    if not project:
-        return jsonify({"error": "Project not found"}), 404
-    
-    # Check if project is public or user is already a member
-    if not project.get("isPublic", False) and user_id not in project.get("members", []):
-        return jsonify({"error": "Access denied - project is private"}), 403
-    
-    # Add user to members if not already there
-    if user_id not in project.get("members", []):
-        projects_col.update_one(
-            {"projectId": project_id},
-            {"$addToSet": {"members": user_id}}
-        )
-        return jsonify({"ok": True, "message": "Successfully joined project"}), 200
-    else:
-        return jsonify({"ok": True, "message": "Already a member of this project"}), 200
+
+    try:
+        # Verify user exists
+        user = users_col.find_one({"userId": user_id})
+        if not user:
+            return jsonify({"error": "Invalid user"}), 400
+
+        # Find project
+        project = projects_col.find_one({"projectId": project_id})
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+
+        # Check if project is public or user is already a member
+        if not project.get("isPublic", False) and user_id not in project.get("members", []):
+            return jsonify({"error": "Access denied - project is private"}), 403
+
+        # Add user to members if not already there
+        if user_id not in project.get("members", []):
+            projects_col.update_one(
+                {"projectId": project_id},
+                {"$addToSet": {"members": user_id}}
+            )
+            return jsonify({"ok": True, "message": "Successfully joined project"}), 200
+        else:
+            return jsonify({"ok": True, "message": "Already a member of this project"}), 200
+
+    except Exception as e:
+        # Log and return a safe error for debugging in dev
+        print("Error in join_project:", e)
+        return jsonify({"error": "Internal server error", "detail": str(e)}), 500
 
 
 @app.route("/api/projects/<project_id>/members", methods=["GET"])
@@ -309,6 +338,37 @@ def get_project_members(project_id):
         "createdBy": project.get("createdBy"),
         "isPublic": project.get("isPublic", False)
     }), 200
+
+
+@app.route("/api/projects/<project_id>/members/<member_id>", methods=["DELETE"])
+def remove_project_member(project_id, member_id):
+    payload = request.get_json(force=True) or {}
+    requesting_user = payload.get("requestingUser") or request.args.get("requestingUser")
+
+    if not requesting_user:
+        return jsonify({"error": "requestingUser is required"}), 400
+
+    project = projects_col.find_one({"projectId": project_id})
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    # Only the creator may remove members
+    if project.get("createdBy") != requesting_user:
+        return jsonify({"error": "Only the project owner may remove members"}), 403
+
+    # Prevent removing the project owner
+    if member_id == project.get("createdBy"):
+        return jsonify({"error": "Cannot remove the project owner"}), 400
+
+    result = projects_col.update_one(
+        {"projectId": project_id},
+        {"$pull": {"members": member_id}}
+    )
+
+    if result.modified_count > 0:
+        return jsonify({"ok": True, "removed": member_id}), 200
+    else:
+        return jsonify({"ok": True, "message": "User was not a member"}), 200
 
 
 @app.route("/api/projects/<project_id>/invite", methods=["POST"])

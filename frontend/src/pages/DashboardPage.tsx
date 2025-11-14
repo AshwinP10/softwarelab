@@ -90,18 +90,36 @@ const DashboardPage: React.FC = () => {
       return
     }
     try {
-      const res = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(lookupId)}?userId=${encodeURIComponent(userId)}`)
-      if (res.status === 404) {
+      // First, attempt to join the project (works for public projects; will be rejected for private)
+      const joinRes = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(lookupId)}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      })
+
+      if (joinRes.status === 404) {
         setError('Project not found')
         return
       }
-      if (res.status === 403) {
-        setError('Access denied - you are not a member of this project')
+      if (joinRes.status === 403) {
+        const body = await joinRes.json().catch(() => ({}))
+        setError(body.error || 'Access denied - cannot join this project')
         return
       }
-      if (!res.ok) throw new Error('Failed to load project')
-      const data = await res.json()
-      navigate(`/project/${lookupId}`, { state: { name: data.name, description: data.description } })
+
+      if (!joinRes.ok) {
+        const body = await joinRes.json().catch(() => ({}))
+        throw new Error(body.error || 'Failed to join project')
+      }
+
+      // After joining (or if already a member), fetch project details to get name/description
+      const detailsRes = await fetch(`${API_BASE}/api/projects/${encodeURIComponent(lookupId)}?userId=${encodeURIComponent(userId)}`)
+      if (!detailsRes.ok) {
+        const body = await detailsRes.json().catch(() => ({}))
+        throw new Error(body.error || 'Failed to load project after joining')
+      }
+      const data = await detailsRes.json()
+      navigate(`/project/${lookupId}`, { state: { name: data.name, description: data.description, isPublic: data.isPublic } })
     } catch (err: any) {
       console.error(err)
       setError(String(err.message || err))
