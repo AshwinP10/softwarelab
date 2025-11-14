@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, BulkWriteError
 from dotenv import load_dotenv
 import os
 
@@ -25,6 +25,12 @@ resources_col = db.get_collection("Resources")
 # Ensure uniqueness
 users_col.create_index("userId", unique=True)
 projects_col.create_index("projectId", unique=True)
+# add compound unique index for resources to prevent duplicates (safe-guard)
+try:
+    resources_col.create_index([("projectId", 1), ("hwsetId", 1)], unique=True)
+except Exception:
+    # ignore index creation errors at startup
+    pass
 
 app = Flask(__name__)
 
@@ -186,8 +192,70 @@ def create_project():
         projects_col.insert_one(doc)
     except DuplicateKeyError:
         return jsonify({"error": "projectId already exists"}), 409
+    except Exception as e:
+        # unexpected error while creating project
+        return jsonify({"error": f"Failed to create project: {str(e)}"}), 500
 
-    return jsonify({"ok": True, "projectId": doc["projectId"]}), 201
+    # Create default hardware resources for the new project (create one-by-one to avoid BulkWrite crashes)
+    default_hw1_total = int(payload.get("default_hwset1_total", 15))
+    default_hw2_total = int(payload.get("default_hwset2_total", 10))
+
+    default_resources = [
+        {
+            "projectId": doc["projectId"],
+            "hwsetId": "HWSet1",
+            "name": "Arduino Uno Kit",
+            "total": default_hw1_total,
+            "allocatedToProject": 0,
+            "available": default_hw1_total,
+            "notes": f"Default Arduino kits for {doc['projectId']}"
+        },
+        {
+            "projectId": doc["projectId"],
+            "hwsetId": "HWSet2",
+            "name": "Raspberry Pi Kit",
+            "total": default_hw2_total,
+            "allocatedToProject": 0,
+            "available": default_hw2_total,
+            "notes": f"Default Raspberry Pi kits for {doc['projectId']}"
+        }
+    ]
+
+    created_or_existing_resources = []
+    for res_doc in default_resources:
+        try:
+            resources_col.insert_one(res_doc)
+            created_or_existing_resources.append({
+                "projectId": res_doc["projectId"],
+                "hwsetId": res_doc["hwsetId"],
+                "name": res_doc["name"],
+                "total": res_doc["total"],
+                "allocatedToProject": res_doc["allocatedToProject"],
+                "available": res_doc["available"],
+                "notes": res_doc.get("notes", "")
+            })
+        except DuplicateKeyError:
+            # resource already exists — fetch current state
+            existing = resources_col.find_one(
+                {"projectId": res_doc["projectId"], "hwsetId": res_doc["hwsetId"]},
+                {"_id": 0, "projectId": 1, "hwsetId": 1, "name": 1, "total": 1, "allocatedToProject": 1, "available": 1, "notes": 1}
+            )
+            if existing:
+                created_or_existing_resources.append(existing)
+        except Exception:
+            # any other error — attempt to fetch existing and continue
+            existing = resources_col.find_one(
+                {"projectId": res_doc["projectId"], "hwsetId": res_doc["hwsetId"]},
+                {"_id": 0, "projectId": 1, "hwsetId": 1, "name": 1, "total": 1, "allocatedToProject": 1, "available": 1, "notes": 1}
+            )
+            if existing:
+                created_or_existing_resources.append(existing)
+
+    return jsonify({
+        "ok": True,
+        "projectId": doc["projectId"],
+        "resources": created_or_existing_resources
+    }), 201
 
 
 @app.route("/api/projects/<project_id>/join", methods=["POST"])

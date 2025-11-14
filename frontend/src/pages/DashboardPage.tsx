@@ -40,21 +40,37 @@ const DashboardPage: React.FC = () => {
           name, 
           description, 
           createdBy: userId,
-          isPublic: false  // Default to private projects
+          isPublic: false,  // Default to private projects
+          // request backend to create default hardware sets for this project
+          default_hwset1_total: 15,
+          default_hwset2_total: 10
         }),
       })
-      if (res.status === 409) {
-        setError('Project ID already exists')
+
+      // handle network-level failures
+      if (!res) {
+        throw new Error('No response from server')
+      }
+
+      // attempt to parse response JSON (may fail if server error returns non-json)
+      const body = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        // show server-provided error where available
+        const serverMsg = body && (body.error || body.message)
+        setError(serverMsg ? String(serverMsg) : `Failed to create project (status ${res.status})`)
         return
       }
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || 'Failed to create project')
+
+      // backend includes created resources in response.resources
+      if (body.resources && Array.isArray(body.resources)) {
+        console.log(`Created project ${idToUse} with resources:`, body.resources)
       }
+
       // navigate to the project page and pass the metadata
       navigate(`/project/${idToUse}`, { state: { name, description } })
     } catch (err: any) {
-      console.error(err)
+      // network errors (e.g. "Failed to fetch") will be shown to the user
       setError(String(err.message || err))
     } finally {
       setCreating(false)
