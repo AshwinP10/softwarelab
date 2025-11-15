@@ -8,11 +8,22 @@ Files
 - requirements.txt - Python dependencies
 
 Quick start
-1. Ensure your repo root `.env` contains MONGODB_URI (or export it in your shell):
+1. Ensure your repo root `.env` contains MONGODB_URI (or export it in your shell).
+   Use the included `.env.example` as a template and do NOT commit your `.env` file.
 
-   MONGODB_URI="mongodb+srv://lakshgulati_db_user:<db_password>@projects.mqxulud.mongodb.net/?retryWrites=true&w=majority"
+   Example `.env` entry:
 
-2. Run the API locally (zsh):
+   MONGODB_URI="mongodb+srv://<db_user>:<db_password>@<cluster>.mongodb.net/?retryWrites=true&w=majority"
+
+2. Recommended (Windows PowerShell) — run the repo-level setup helper from the repo root:
+
+   ```powershell
+   .\setup-dev.ps1
+   ```
+
+   That script will create `api/.venv` and install Python dependencies and run `npm install` in `frontend`.
+
+3. Alternatively, manual steps (POSIX shell example):
 
    python3 -m venv .venv
    source .venv/bin/activate
