@@ -3,7 +3,9 @@ frontend/node_modules
 frontend/dist
 
 # Python virtual environment
+.venv/
 api/.venv/
+api/venv/
 .venv/
 __pycache__/
 *.pyc
